@@ -116,10 +116,14 @@ Connection: close
 }
 
 func serveFolder(writer *bufio.Writer, path string) {
+	fmt.Println("Serve Folder", path)
+
 	writer.WriteString(NotFoundResponse)
 }
 
 func serveFile(writer *bufio.Writer, path string) {
+	fmt.Println("Serve file", path)
+
 	data, err := ioutil.ReadFile(path)
 	if err != nil {
 		writer.WriteString(NotFoundResponse)
@@ -151,7 +155,11 @@ func handleRequest(conn net.Conn) {
 	trimedPath := strings.TrimLeft(path, "/")
 	defer writer.Flush()
 	if strings.HasSuffix(path, "/") {
-		serveFolder(writer, trimedPath)
+		if _, err := os.Stat(trimedPath + "index.html"); os.IsNotExist(err) {
+			serveFolder(writer, trimedPath)
+		} else {
+			serveFile(writer, trimedPath + "index.html")
+		}
 	} else {
 		serveFile(writer, trimedPath)
 	}
