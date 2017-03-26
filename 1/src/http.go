@@ -4,10 +4,21 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io/ioutil"
+	"mime"
 	"net"
 	"os"
 	"strings"
 )
+
+var serverName = "SimpleServer/1.0"
+var NotFoundResponse = `HTTP/1.1 404 Not Found
+Server: SimpleServer/1.0
+Content-Type: text/html
+Content-Length: 22
+Connection: close
+
+<h1>404 Not Found</h1>`
 
 var host = flag.String("host", "0.0.0.0", "host")
 var port = flag.String("port", "8080", "port")
@@ -34,8 +45,20 @@ var headers = map[string]string{
 	"User-Agent":      "浏览器的浏览器身份标识字符串",
 	"Upgrade":         "要求服务器升级到另一个协议",
 	"Via":             "请求所使用的代理",
-	"DNT": "请求不要跟踪",
+	"DNT":             "请求不要跟踪",
 	"Upgrade-Insecure-Requests": "请求使用加密链接",
+}
+
+func getMimeType(filename string) string {
+	period := strings.LastIndex(filename, ".")
+	if period < 0 {
+		return "application/octet-stream"
+	}
+	s := mime.TypeByExtension(filename[period:])
+	if s != "" {
+		return s
+	}
+	return "application/octet-stream"
 }
 
 func main() {
@@ -70,24 +93,39 @@ func printHeaders(reader *bufio.Reader) {
 		if len(line) == 2 { // \r\n
 			return
 		}
-		fmt.Println(line)
+		fmt.Print(line)
 		pair := strings.SplitAfterN(line, ":", 2)
 		pair[0] = strings.Trim(pair[0], ":")
 		name, ok := headers[pair[0]]
 		if !ok {
 			fmt.Println("Unknown header:", pair[0])
 		} else {
-			fmt.Println(name, ": ", pair[1], "\n")
+			fmt.Println(name, ": ", pair[1])
 		}
 	}
 }
 
-func serveFile(writer *bufio.Writer, path string) {
+func serveContent(writer *bufio.Writer, mime string, content []byte) {
+	writer.WriteString(fmt.Sprintf(`HTTP/1.1 200 OK
+Server: SimpleServer/1.0
+Content-Type: %s
+Content-Length: %d
+Connection: close
 
+%s`, mime, len(content), content))
 }
 
 func serveFolder(writer *bufio.Writer, path string) {
+	writer.WriteString(NotFoundResponse)
+}
 
+func serveFile(writer *bufio.Writer, path string) {
+	data, err := ioutil.ReadFile(path)
+	if err != nil {
+		writer.WriteString(NotFoundResponse)
+	} else {
+		serveContent(writer, getMimeType(path), data)
+	}
 }
 
 func handleRequest(conn net.Conn) {
@@ -107,13 +145,14 @@ func handleRequest(conn net.Conn) {
 	method := entries[0]
 	path := entries[1]
 	fmt.Println("HTTP 请求类型：", method, " 路径：", path, "版本：", entries[2], "\n")
-	go printHeaders(reader)
+	printHeaders(reader)
 
 	writer := bufio.NewWriter(conn)
+	trimedPath := strings.TrimLeft(path, "/")
+	defer writer.Flush()
 	if strings.HasSuffix(path, "/") {
-		go serveFolder(writer, path)
+		serveFolder(writer, trimedPath)
 	} else {
-		go serveFile(writer, path)
+		serveFile(writer, trimedPath)
 	}
-	conn.Write([]byte("Message received."))
 }
